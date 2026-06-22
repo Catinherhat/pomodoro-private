@@ -64,8 +64,12 @@ class PomodoroPill:
         self.settings_file = config_path()
         self.settings = self.load_settings()
 
-        self.mode = self.settings.get("mode", "Focus")
-        self.duration = int(self.settings.get("duration", FOCUS_SECONDS))
+        self.focus_seconds = int(self.settings.get("focus_seconds", FOCUS_SECONDS))
+        self.short_break_seconds = int(self.settings.get("short_break_seconds", SHORT_BREAK_SECONDS))
+        self.long_break_seconds = int(self.settings.get("long_break_seconds", LONG_BREAK_SECONDS))
+        self.mode_key = self.settings.get("mode_key", "focus")
+        self.mode = self.mode_name(self.mode_key)
+        self.duration = self.duration_for_key(self.mode_key)
         self.remaining = int(self.settings.get("remaining", self.duration))
         self.running = bool(self.settings.get("running", False))
         self.locked = bool(self.settings.get("locked", False))
@@ -105,8 +109,12 @@ class PomodoroPill:
     def save_settings(self) -> None:
         data = {
             "mode": self.mode,
+            "mode_key": self.mode_key,
             "duration": self.duration,
             "remaining": self.remaining,
+            "focus_seconds": self.focus_seconds,
+            "short_break_seconds": self.short_break_seconds,
+            "long_break_seconds": self.long_break_seconds,
             "running": self.running,
             "locked": self.locked,
             "always_on_top": self.always_on_top,
@@ -134,7 +142,7 @@ class PomodoroPill:
             font=("Segoe UI Semibold", 8),
             anchor="w",
         )
-        self.mode_label.place(x=12, y=6, width=82, height=14)
+        self.mode_label.place(x=12, y=6, width=74, height=14)
 
         self.time_label = tk.Label(
             self.frame,
@@ -143,13 +151,21 @@ class PomodoroPill:
             font=("Segoe UI Semibold", 19),
             anchor="w",
         )
-        self.time_label.place(x=11, y=18, width=88, height=30)
+        self.time_label.place(x=11, y=18, width=84, height=30)
 
         self.start_button = self.make_button("Start", self.toggle)
-        self.start_button.place(x=102, y=9, width=55, height=19)
+        self.start_button.place(x=95, y=9, width=49, height=19)
 
         self.reset_button = self.make_button("Reset", self.reset)
-        self.reset_button.place(x=102, y=31, width=55, height=19)
+        self.reset_button.place(x=95, y=31, width=49, height=19)
+
+        self.settings_button = self.make_button("\u2699", self.open_settings)
+        self.settings_button.configure(font=("Segoe UI Symbol", 9))
+        self.settings_button.place(x=150, y=9, width=23, height=19)
+
+        self.close_button = self.make_button("X", self.quit)
+        self.close_button.configure(bg="#3a2630", fg="#ffd7de", font=("Segoe UI Semibold", 8))
+        self.close_button.place(x=150, y=31, width=23, height=19)
 
     def make_button(self, text: str, command) -> tk.Label:
         label = tk.Label(
@@ -170,10 +186,11 @@ class PomodoroPill:
         self.menu.add_command(label="Start / Pause", command=self.toggle)
         self.menu.add_command(label="Reset", command=self.reset)
         self.menu.add_separator()
-        self.menu.add_command(label="Focus - 25 minutes", command=lambda: self.set_mode("Focus", FOCUS_SECONDS))
-        self.menu.add_command(label="Short break - 5 minutes", command=lambda: self.set_mode("Break", SHORT_BREAK_SECONDS))
-        self.menu.add_command(label="Long break - 15 minutes", command=lambda: self.set_mode("Break", LONG_BREAK_SECONDS))
+        self.menu.add_command(label="", command=lambda: self.set_mode("focus"))
+        self.menu.add_command(label="", command=lambda: self.set_mode("short_break"))
+        self.menu.add_command(label="", command=lambda: self.set_mode("long_break"))
         self.menu.add_separator()
+        self.menu.add_command(label="Settings", command=self.open_settings)
         self.menu.add_checkbutton(label="Always on top", variable=self.topmost_var, command=self.toggle_topmost)
         self.menu.add_checkbutton(label="Lock position", variable=self.locked_var, command=self.toggle_lock)
         self.menu.add_separator()
@@ -188,7 +205,7 @@ class PomodoroPill:
             widget.bind("<Button-3>", self.show_menu)
 
     def place_window(self) -> None:
-        width, height = 168, 58
+        width, height = 184, 58
         self.root.geometry(f"{width}x{height}")
         saved_x = self.settings.get("x")
         saved_y = self.settings.get("y")
@@ -214,6 +231,9 @@ class PomodoroPill:
     def show_menu(self, event) -> None:
         self.topmost_var.set(self.always_on_top)
         self.locked_var.set(self.locked)
+        self.menu.entryconfig(3, label=f"Focus - {self.format_duration(self.focus_seconds)}")
+        self.menu.entryconfig(4, label=f"Short break - {self.format_duration(self.short_break_seconds)}")
+        self.menu.entryconfig(5, label=f"Long break - {self.format_duration(self.long_break_seconds)}")
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def toggle(self) -> None:
@@ -228,13 +248,106 @@ class PomodoroPill:
         self.update_view()
         self.save_settings()
 
-    def set_mode(self, mode: str, duration: int) -> None:
-        self.mode = mode
-        self.duration = duration
-        self.remaining = duration
+    def set_mode(self, mode_key: str) -> None:
+        self.mode_key = mode_key
+        self.mode = self.mode_name(mode_key)
+        self.duration = self.duration_for_key(mode_key)
+        self.remaining = self.duration
         self.running = False
         self.update_view()
         self.save_settings()
+
+    def open_settings(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Pomodoro Settings")
+        dialog.configure(bg=self.palette["panel"])
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.attributes("-topmost", self.always_on_top)
+
+        fields = [
+            ("Focus", "focus", self.focus_seconds),
+            ("Short break", "short_break", self.short_break_seconds),
+            ("Long break", "long_break", self.long_break_seconds),
+        ]
+        entries = {}
+
+        title = tk.Label(
+            dialog,
+            text="Timer lengths",
+            bg=self.palette["panel"],
+            fg=self.palette["text"],
+            font=("Segoe UI Semibold", 11),
+            anchor="w",
+        )
+        title.grid(row=0, column=0, columnspan=5, sticky="ew", padx=14, pady=(12, 6))
+
+        for row, (label_text, key, total_seconds) in enumerate(fields, start=1):
+            minutes, seconds = divmod(total_seconds, 60)
+            tk.Label(
+                dialog,
+                text=label_text,
+                bg=self.palette["panel"],
+                fg=self.palette["text"],
+                font=("Segoe UI", 9),
+                anchor="w",
+            ).grid(row=row, column=0, sticky="w", padx=(14, 8), pady=5)
+            minute_entry = tk.Spinbox(dialog, from_=0, to=999, width=5, font=("Segoe UI", 9))
+            second_entry = tk.Spinbox(dialog, from_=0, to=59, width=4, font=("Segoe UI", 9), format="%02.0f")
+            minute_entry.delete(0, "end")
+            second_entry.delete(0, "end")
+            minute_entry.insert(0, str(minutes))
+            second_entry.insert(0, f"{seconds:02d}")
+            minute_entry.grid(row=row, column=1, sticky="w", pady=5)
+            tk.Label(dialog, text="min", bg=self.palette["panel"], fg=self.palette["muted"], font=("Segoe UI", 8)).grid(row=row, column=2, padx=(4, 10), pady=5)
+            second_entry.grid(row=row, column=3, sticky="w", pady=5)
+            tk.Label(dialog, text="sec", bg=self.palette["panel"], fg=self.palette["muted"], font=("Segoe UI", 8)).grid(row=row, column=4, padx=(4, 14), pady=5)
+            entries[key] = (minute_entry, second_entry)
+
+        buttons = tk.Frame(dialog, bg=self.palette["panel"])
+        buttons.grid(row=4, column=0, columnspan=5, sticky="e", padx=14, pady=(8, 14))
+        cancel_button = tk.Button(buttons, text="Cancel", command=dialog.destroy, relief="flat")
+        save_button = tk.Button(buttons, text="Save", command=lambda: self.save_timer_settings(dialog, entries), relief="flat")
+        cancel_button.pack(side="left", padx=(0, 8))
+        save_button.pack(side="left")
+
+        dialog.update_idletasks()
+        x = self.root.winfo_x() - dialog.winfo_width() + self.root.winfo_width()
+        y = self.root.winfo_y() - dialog.winfo_height() - 8
+        if y < 0:
+            y = self.root.winfo_y() + self.root.winfo_height() + 8
+        dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
+        dialog.grab_set()
+        minute_first, _second_first = entries["focus"]
+        minute_first.focus_set()
+
+    def save_timer_settings(self, dialog: tk.Toplevel, entries: dict) -> None:
+        try:
+            values = {}
+            for key, (minute_entry, second_entry) in entries.items():
+                minutes = int(minute_entry.get())
+                seconds = int(second_entry.get())
+                if minutes < 0 or seconds < 0 or seconds > 59:
+                    raise ValueError
+                total = minutes * 60 + seconds
+                if total <= 0:
+                    raise ValueError
+                values[key] = total
+        except ValueError:
+            messagebox.showerror(APP_NAME, "Enter positive timer lengths. Seconds must be 0 through 59.")
+            return
+
+        self.focus_seconds = values["focus"]
+        self.short_break_seconds = values["short_break"]
+        self.long_break_seconds = values["long_break"]
+        self.duration = self.duration_for_key(self.mode_key)
+        if self.running:
+            self.remaining = min(self.remaining, self.duration)
+        else:
+            self.remaining = self.duration
+        self.update_view()
+        self.save_settings()
+        dialog.destroy()
 
     def toggle_topmost(self) -> None:
         self.always_on_top = self.topmost_var.get()
@@ -247,6 +360,26 @@ class PomodoroPill:
 
     def apply_topmost(self) -> None:
         self.root.attributes("-topmost", self.always_on_top)
+
+    def duration_for_key(self, mode_key: str) -> int:
+        if mode_key == "short_break":
+            return self.short_break_seconds
+        if mode_key == "long_break":
+            return self.long_break_seconds
+        return self.focus_seconds
+
+    def mode_name(self, mode_key: str) -> str:
+        if mode_key == "short_break":
+            return "Short break"
+        if mode_key == "long_break":
+            return "Long break"
+        return "Focus"
+
+    def format_duration(self, total_seconds: int) -> str:
+        minutes, seconds = divmod(total_seconds, 60)
+        if seconds:
+            return f"{minutes}:{seconds:02d}"
+        return f"{minutes} minutes"
 
     def tick(self) -> None:
         now = time.monotonic()
