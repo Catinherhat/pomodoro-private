@@ -154,18 +154,22 @@ class PomodoroPill:
         self.time_label.place(x=11, y=18, width=84, height=30)
 
         self.start_button = self.make_button("Start", self.toggle)
-        self.start_button.place(x=95, y=9, width=49, height=19)
+        self.start_button.place(x=95, y=9, width=47, height=19)
 
         self.reset_button = self.make_button("Reset", self.reset)
-        self.reset_button.place(x=95, y=31, width=49, height=19)
+        self.reset_button.place(x=95, y=31, width=47, height=19)
+
+        self.skip_button = self.make_button(">>", self.skip_phase)
+        self.skip_button.configure(font=("Segoe UI Semibold", 8))
+        self.skip_button.place(x=148, y=9, width=23, height=41)
 
         self.settings_button = self.make_button("\u2699", self.open_settings)
         self.settings_button.configure(font=("Segoe UI Symbol", 9))
-        self.settings_button.place(x=150, y=9, width=23, height=19)
+        self.settings_button.place(x=177, y=9, width=23, height=19)
 
         self.close_button = self.make_button("X", self.quit)
         self.close_button.configure(bg="#3a2630", fg="#ffd7de", font=("Segoe UI Semibold", 8))
-        self.close_button.place(x=150, y=31, width=23, height=19)
+        self.close_button.place(x=177, y=31, width=23, height=19)
 
     def make_button(self, text: str, command) -> tk.Label:
         label = tk.Label(
@@ -185,6 +189,7 @@ class PomodoroPill:
         self.menu = tk.Menu(self.root, tearoff=False, bg="#222733", fg="#f2f5f8")
         self.menu.add_command(label="Start / Pause", command=self.toggle)
         self.menu.add_command(label="Reset", command=self.reset)
+        self.menu.add_command(label="Skip to next", command=self.skip_phase)
         self.menu.add_separator()
         self.menu.add_command(label="", command=lambda: self.set_mode("focus"))
         self.menu.add_command(label="", command=lambda: self.set_mode("short_break"))
@@ -205,7 +210,7 @@ class PomodoroPill:
             widget.bind("<Button-3>", self.show_menu)
 
     def place_window(self) -> None:
-        width, height = 184, 58
+        width, height = 211, 58
         self.root.geometry(f"{width}x{height}")
         saved_x = self.settings.get("x")
         saved_y = self.settings.get("y")
@@ -231,9 +236,9 @@ class PomodoroPill:
     def show_menu(self, event) -> None:
         self.topmost_var.set(self.always_on_top)
         self.locked_var.set(self.locked)
-        self.menu.entryconfig(3, label=f"Focus - {self.format_duration(self.focus_seconds)}")
-        self.menu.entryconfig(4, label=f"Short break - {self.format_duration(self.short_break_seconds)}")
-        self.menu.entryconfig(5, label=f"Long break - {self.format_duration(self.long_break_seconds)}")
+        self.menu.entryconfig(4, label=f"Focus - {self.format_duration(self.focus_seconds)}")
+        self.menu.entryconfig(5, label=f"Short break - {self.format_duration(self.short_break_seconds)}")
+        self.menu.entryconfig(6, label=f"Long break - {self.format_duration(self.long_break_seconds)}")
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def toggle(self) -> None:
@@ -245,6 +250,18 @@ class PomodoroPill:
     def reset(self) -> None:
         self.running = False
         self.remaining = self.duration
+        self.update_view()
+        self.save_settings()
+
+    def skip_phase(self) -> None:
+        was_running = self.running
+        next_mode = "short_break" if self.mode_key == "focus" else "focus"
+        self.mode_key = next_mode
+        self.mode = self.mode_name(next_mode)
+        self.duration = self.duration_for_key(next_mode)
+        self.remaining = self.duration
+        self.running = was_running
+        self.last_tick = time.monotonic()
         self.update_view()
         self.save_settings()
 
